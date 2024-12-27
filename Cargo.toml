@@ -9,7 +9,7 @@ cortex-m-rt = { version = "0.7.3" }
 defmt = "0.3.4"
 defmt-rtt = "0.4.0"
 tinyrlibc = { git = "https://github.com/rust-embedded-community/tinyrlibc.git" }
-nrf-modem = { path = "../nrf-modem", features = ["defmt"] }
+nrf-modem = { path = "../nrf-modem", features = ["defmt", "nrf9151"] }
 futures = { version = "0.3", default-features = false }
 libm = "0.2.5"
 

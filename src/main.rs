@@ -7,7 +7,11 @@ use defmt::unwrap;
 use defmt_rtt as _;
 use embassy_nrf::interrupt::{Interrupt, InterruptExt, Priority};
 use embassy_time::Duration;
-use nrf_modem::{no_std_net::SocketAddr, ConnectionPreference, LteLink, SystemMode, TcpStream};
+use nrf_modem::{ConnectionPreference, LteLink, SystemMode, TcpStream};
+use core::net::SocketAddr;
+
+use cortex_m::peripheral::NVIC;
+use embassy_nrf::pac;
 
 extern crate tinyrlibc;
 
@@ -19,25 +23,23 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
     use embassy_nrf::pac::interrupt;
 
-    // Set up the interrupts for the modem
-    let egu1 = unsafe { embassy_nrf::interrupt::EGU1::steal() };
-    egu1.set_priority(Priority::P4);
-    egu1.enable();
-
     let ipc = unsafe { embassy_nrf::interrupt::IPC::steal() };
     ipc.set_priority(Priority::P0);
     ipc.enable();
 
-    #[cortex_m_rt::interrupt]
-    fn EGU1() {
-        nrf_modem::application_irq_handler();
-        cortex_m::asm::sev();
-    }
-
-    #[cortex_m_rt::interrupt]
+    // Interrupt Handler for LTE related hardware. Defer straight to the library.
+    #[interrupt]
+    #[allow(non_snake_case)]
     fn IPC() {
         nrf_modem::ipc_irq_handler();
-        cortex_m::asm::sev();
+    }
+    
+    let mut cp = unwrap!(cortex_m::Peripherals::take());
+
+    // Enable the modem interrupts
+    unsafe {
+        NVIC::unmask(pac::Interrupt::IPC);
+        cp.NVIC.set_priority(pac::Interrupt::IPC, 0 << 5);
     }
 
     run().await;
@@ -47,16 +49,15 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
 async fn run() {
     defmt::println!("Initializing modem");
-    unwrap!(
-        nrf_modem::init(SystemMode {
-            lte_support: true,
-            nbiot_support: false,
-            gnss_support: true,
-            preference: ConnectionPreference::Lte,
-            lte_psm_support: true,
-        })
-        .await
-    );
+    nrf_modem::init(SystemMode {
+        lte_support: true,
+        lte_psm_support: true,
+        nbiot_support: true,
+        gnss_support: true,
+        preference: ConnectionPreference::None,
+    })
+    .await
+    .unwrap();
 
     // nrf_modem::configure_gnss_on_pca10090ns().await.unwrap();
 
