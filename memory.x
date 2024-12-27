@@ -1,19 +1,6 @@
-/* Linker script for the nRF9160 in Non-secure mode */
 MEMORY
 {
-
-    SPM                      : ORIGIN = 0x00000000, LENGTH = 320K
-    FLASH                    : ORIGIN = 0x00050000, LENGTH = 704K
-    RAM                      : ORIGIN = 0x20018000, LENGTH = 160K
-
-}
-
-
-SECTIONS
-{
-  /* Define an spm region where the compiler can put the spm for us */
-  .spm :
-  {
-    KEEP(*(.spm .spm.*));
-  } > SPM
+  FLASH                    : ORIGIN = 0x00000000, LENGTH = 1024K
+  MODEM                    : ORIGIN = 0x20000000, LENGTH = 32K
+  RAM                      : ORIGIN = 0x20008000, LENGTH = 224K
 }

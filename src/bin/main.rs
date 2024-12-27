@@ -2,8 +2,10 @@
 #![no_main]
 
 use defmt::*;
+use {defmt_rtt as _, panic_probe as _};
 use embassy_time::Duration;
 use embassy_executor::Spawner;
+use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_nrf::{pac};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -17,7 +19,34 @@ use tinyrlibc;
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
 
-    let _p = embassy_nrf::init(Default::default());
+    defmt::info!("hello");
+    let p = embassy_nrf::init(Default::default());
+    let mut led = Output::new(p.P0_00, Level::Low, OutputDrive::Standard);
+    led.set_high();
+
+    // Set IPC RAM to nonsecure
+    const SPU_REGION_SIZE: u32 = 0x2000; // 8kb
+    const RAM_START: u32 = 0x2000_0000; // 256kb
+    let spu = embassy_nrf::pac::SPU;
+    let region_start = 0x2000_000 - RAM_START / SPU_REGION_SIZE;
+    let region_end = region_start + (0x2000_8000 - 0x2000_0000) / SPU_REGION_SIZE;
+    for i in region_start..region_end {
+        spu.ramregion(i as usize).perm().write(|w| {
+            w.set_execute(true);
+            w.set_write(true);
+            w.set_read(true);
+            w.set_secattr(false);
+            w.set_lock(false);
+        })
+    }
+
+    // Set regulator access registers to nonsecure
+    spu.periphid(4).perm().write(|w| w.set_secattr(false));
+    // Set clock and power access registers to nonsecure
+    spu.periphid(5).perm().write(|w| w.set_secattr(false));
+    // Set IPC access register to nonsecure
+    spu.periphid(42).perm().write(|w| w.set_secattr(false));
+
 
     use embassy_nrf::pac::interrupt;
 
