@@ -1,31 +1,25 @@
-#![no_main]
 #![no_std]
-#![feature(type_alias_impl_trait)]
+#![no_main]
 
-use core::str::FromStr;
-use defmt::unwrap;
-use defmt_rtt as _;
-use embassy_nrf::interrupt::{Interrupt, InterruptExt, Priority};
+use defmt::*;
 use embassy_time::Duration;
+use embassy_executor::Spawner;
+use embassy_nrf::{pac};
+use {defmt_rtt as _, panic_probe as _};
+
 use nrf_modem::{ConnectionPreference, LteLink, SystemMode, TcpStream};
-use core::net::SocketAddr;
-
+use core::net::{IpAddr, Ipv4Addr, SocketAddr};
 use cortex_m::peripheral::NVIC;
-use embassy_nrf::pac;
 
-extern crate tinyrlibc;
-
-defmt::timestamp!("{=u64:us}", { embassy_time::Instant::now().as_micros() });
+#[allow(unused_imports)]
+use tinyrlibc;
 
 #[embassy_executor::main]
-async fn main(_spawner: embassy_executor::Spawner) {
-    defmt::println!("Hello, world!");
+async fn main(_spawner: Spawner) {
+
+    let _p = embassy_nrf::init(Default::default());
 
     use embassy_nrf::pac::interrupt;
-
-    let ipc = unsafe { embassy_nrf::interrupt::IPC::steal() };
-    ipc.set_priority(Priority::P0);
-    ipc.enable();
 
     // Interrupt Handler for LTE related hardware. Defer straight to the library.
     #[interrupt]
@@ -33,7 +27,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     fn IPC() {
         nrf_modem::ipc_irq_handler();
     }
-    
+
     let mut cp = unwrap!(cortex_m::Peripherals::take());
 
     // Enable the modem interrupts
@@ -47,6 +41,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     exit();
 }
 
+
 async fn run() {
     defmt::println!("Initializing modem");
     nrf_modem::init(SystemMode {
@@ -59,28 +54,6 @@ async fn run() {
     .await
     .unwrap();
 
-    // nrf_modem::configure_gnss_on_pca10090ns().await.unwrap();
-
-    // defmt::println!("Initializing gps");
-    // let mut gnss = nrf_modem::gnss::Gnss::new().await.unwrap();
-    // defmt::println!("Starting single fix");
-    // let mut iter = gnss
-    //     .start_continuous_fix(nrf_modem::gnss::GnssConfig {
-    //         fix_retry: 600,
-    //         nmea_mask: nrf_modem::gnss::NmeaMask {
-    //             gga: false,
-    //             gll: false,
-    //             gsa: false,
-    //             gsv: true,
-    //             rmc: false,
-    //         },
-    //         ..Default::default()
-    //     })
-    //     .unwrap();
-
-    // while let Some(x) = futures::StreamExt::next(&mut iter).await {
-    //     defmt::println!("{:?}", defmt::Debug2Format(&x));
-    // }
     defmt::println!("Creating link");
 
     let link = LteLink::new().await.unwrap();
@@ -94,7 +67,7 @@ async fn run() {
 
     let stream = embassy_time::with_timeout(
         Duration::from_millis(2000),
-        TcpStream::connect(SocketAddr::from((google_ip, 80))),
+        TcpStream::connect(SocketAddr::new(google_ip, 80)),
     )
     .await
     .unwrap()
@@ -109,10 +82,12 @@ async fn run() {
 
     defmt::println!("Google page: {}", core::str::from_utf8(used).unwrap());
 
-    let socket = nrf_modem::UdpSocket::bind(SocketAddr::from_str("0.0.0.0:53").unwrap())
+    let ip = IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0));
+    let socket = nrf_modem::UdpSocket::bind(SocketAddr::new(ip, 53))
         .await
         .unwrap();
     // Do a DNS request
+    let ip = IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8));
     socket
         .send_to(
             &[
@@ -120,7 +95,8 @@ async fn run() {
                 0x77, 0x77, 0x0C, 0x6E, 0x6F, 0x72, 0x74, 0x68, 0x65, 0x61, 0x73, 0x74, 0x65, 0x72,
                 0x6E, 0x03, 0x65, 0x64, 0x75, 0x00, 0x00, 0x01, 0x00, 0x01,
             ],
-            SocketAddr::from_str("8.8.8.8:53").unwrap(),
+
+            SocketAddr::new(ip,53)
         )
         .await
         .unwrap();
@@ -130,20 +106,6 @@ async fn run() {
     defmt::println!("Source: {}", defmt::Debug2Format(&source));
 }
 
-/// Called when our code panics.
-#[panic_handler]
-fn panic(info: &core::panic::PanicInfo) -> ! {
-    cortex_m::interrupt::disable();
-
-    defmt::println!("Panic: {}", defmt::Display2Format(info));
-
-    // Make this a hardfault. This has a lot of advantages:
-    // - No interrupt can interrupt a hardfault
-    // - Recursion cannot happen because the hardware prevents that
-    // - It is the natural endpoint for program failures on cortex-m
-    cortex_m::asm::udf();
-}
-
 /// Terminates the application and makes `probe-run` exit with exit-code = 0
 pub fn exit() -> ! {
     loop {
@@ -151,6 +113,3 @@ pub fn exit() -> ! {
     }
 }
 
-#[link_section = ".spm"]
-#[used]
-static SPM: [u8; 24052] = *include_bytes!("zephyr.bin");
